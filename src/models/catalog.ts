@@ -10,6 +10,8 @@ export interface ModelOption {
   targetSize: number
 }
 
+const asset = (path: string) => `${import.meta.env.BASE_URL}${path}`.replace(/([^:]\/)\/+/g, '$1')
+
 export const MODEL_OPTIONS: ModelOption[] = [
   {
     id: 'box',
@@ -21,28 +23,28 @@ export const MODEL_OPTIONS: ModelOption[] = [
   {
     id: 'duck',
     label: 'Duck',
-    url: '/models/Duck.glb',
+    url: asset('models/Duck.glb'),
     hint: 'Khronos · ~120KB',
     targetSize: 1.6,
   },
   {
     id: 'avocado',
     label: 'Avocado',
-    url: '/models/Avocado.glb',
+    url: asset('models/Avocado.glb'),
     hint: 'Khronos · 纹理 PBR',
     targetSize: 1.5,
   },
   {
     id: 'helmet',
     label: 'DamagedHelmet',
-    url: '/models/DamagedHelmet.glb',
+    url: asset('models/DamagedHelmet.glb'),
     hint: 'Khronos · 经典 PBR',
     targetSize: 1.8,
   },
   {
     id: 'bottle',
     label: 'WaterBottle',
-    url: '/models/WaterBottle.glb',
+    url: asset('models/WaterBottle.glb'),
     hint: 'Khronos · 玻璃瓶',
     targetSize: 1.7,
   },

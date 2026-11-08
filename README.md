@@ -4,6 +4,10 @@
 
 依据见 [`docs/可行性评估依据.md`](docs/可行性评估依据.md)。
 
+**在线演示：** https://sogrey.github.io/Kiloframe/
+
+推送 `main` 后由 GitHub Actions 自动构建并发布到 GitHub Pages（工作流：`.github/workflows/deploy-pages.yml`）。仓库 Settings → Pages → Source 需设为 **GitHub Actions**。
+
 ## 开发
 
 ```bash
