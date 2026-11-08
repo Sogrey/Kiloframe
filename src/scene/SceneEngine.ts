@@ -1,28 +1,26 @@
 import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import type { Placement } from './layouts'
 import { buildPlacements } from './layouts'
-import {
-  buildLodProxies,
-  getModelTemplate,
-  type ModelTemplate,
-  type TemplatePart,
-} from './modelTemplate'
+import { clearRoot } from './clearRoot'
+import { createRendererScene } from './createRendererScene'
+import { buildLodProxies, getModelTemplate, type ModelTemplate, type TemplatePart } from './modelTemplate'
+import { buildModeScene } from './modes'
+import { StatsSampler } from './statsLoop'
 import type { ModelOption } from '../models/catalog'
-import { MODEL_OPTIONS, DEFAULT_MODEL_ID } from '../models/catalog'
+import { DEFAULT_MODEL_ID, MODEL_OPTIONS } from '../models/catalog'
 import type { RenderMode, RenderStats } from '../types'
 import { OBJECT_COUNT } from '../types'
 
 export class SceneEngine {
   readonly renderer: THREE.WebGLRenderer
-  readonly scene = new THREE.Scene()
+  readonly scene: THREE.Scene
   readonly camera: THREE.PerspectiveCamera
-  readonly controls: OrbitControls
+  readonly controls: ReturnType<typeof createRendererScene>['controls']
 
-  private readonly root = new THREE.Group()
-  private readonly placements: Placement[]
+  private readonly root: THREE.Group
+  private readonly disposeScene: () => void
+  private readonly placements = buildPlacements(OBJECT_COUNT)
   private readonly clock = new THREE.Clock()
+  private readonly stats = new StatsSampler()
 
   private mode: RenderMode = 'baseline'
   private modelId = DEFAULT_MODEL_ID
@@ -30,61 +28,21 @@ export class SceneEngine {
   private lodMid: TemplatePart[] = []
   private lodLow: TemplatePart[] = []
   private loadToken = 0
+  private buildToken = 0
 
   private raf = 0
-  private frames = 0
-  private fpsAccum = 0
-  private fps = 0
   private disposed = false
   private onStats?: (stats: RenderStats) => void
   private onLoading?: (loading: boolean, label?: string) => void
 
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: false,
-      powerPreference: 'high-performance',
-    })
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
-    this.renderer.setSize(canvas.clientWidth, canvas.clientHeight, false)
-    this.renderer.shadowMap.enabled = false
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.05
-    this.renderer.info.autoReset = true
-
-    this.camera = new THREE.PerspectiveCamera(
-      55,
-      canvas.clientWidth / Math.max(canvas.clientHeight, 1),
-      0.1,
-      500,
-    )
-    this.camera.position.set(28, 34, 42)
-
-    this.controls = new OrbitControls(this.camera, canvas)
-    this.controls.enableDamping = true
-    this.controls.target.set(0, 0, 0)
-    this.controls.maxDistance = 180
-    this.controls.minDistance = 8
-
-    this.scene.background = new THREE.Color(0x0b1220)
-    this.scene.fog = new THREE.Fog(0x0b1220, 70, 180)
-    this.scene.add(this.root)
-
-    const hemi = new THREE.HemisphereLight(0xb1c5ff, 0x243044, 1.05)
-    const dir = new THREE.DirectionalLight(0xfff2d6, 1.45)
-    dir.position.set(40, 60, 20)
-    this.scene.add(hemi, dir)
-
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(220, 220),
-      new THREE.MeshStandardMaterial({ color: 0x152033, roughness: 0.95, metalness: 0.05 }),
-    )
-    ground.rotation.x = -Math.PI / 2
-    ground.position.y = -0.01
-    this.scene.add(ground)
-
-    this.placements = buildPlacements(OBJECT_COUNT)
+    const created = createRendererScene(canvas)
+    this.renderer = created.renderer
+    this.scene = created.scene
+    this.camera = created.camera
+    this.controls = created.controls
+    this.root = created.root
+    this.disposeScene = created.dispose
     window.addEventListener('resize', this.onResize)
   }
 
@@ -111,7 +69,14 @@ export class SceneEngine {
   setMode(mode: RenderMode) {
     if (mode === this.mode) return
     this.mode = mode
-    if (this.template) this.buildMode(mode)
+    if (!this.template) return
+
+    // Heavy rebuilds (especially merge) — yield so UI can show loading
+    if (mode === 'merged') {
+      void this.rebuildWithFeedback('合并几何…')
+      return
+    }
+    this.buildMode(mode)
   }
 
   async setModel(modelId: string) {
@@ -125,29 +90,10 @@ export class SceneEngine {
       if (this.disposed) return
       this.raf = requestAnimationFrame(tick)
       const dt = this.clock.getDelta()
-      this.frames++
-      this.fpsAccum += dt
-      if (this.fpsAccum >= 0.5) {
-        this.fps = Math.round(this.frames / this.fpsAccum)
-        this.frames = 0
-        this.fpsAccum = 0
-      }
-
       this.controls.update()
       this.renderer.render(this.scene, this.camera)
-
       if (this.onStats) {
-        const info = this.renderer.info
-        this.onStats({
-          fps: this.fps,
-          drawCalls: info.render.calls,
-          triangles: info.render.triangles,
-          points: info.render.points,
-          lines: info.render.lines,
-          geometries: info.memory.geometries,
-          textures: info.memory.textures,
-          mode: this.mode,
-        })
+        this.onStats(this.stats.sample(dt, this.renderer, this.mode))
       }
     }
     tick()
@@ -157,10 +103,9 @@ export class SceneEngine {
     this.disposed = true
     cancelAnimationFrame(this.raf)
     window.removeEventListener('resize', this.onResize)
-    this.clearRoot()
+    clearRoot(this.root)
     this.disposeLodProxies()
-    this.controls.dispose()
-    this.renderer.dispose()
+    this.disposeScene()
   }
 
   private readonly onResize = () => {
@@ -170,6 +115,18 @@ export class SceneEngine {
     this.camera.aspect = w / h
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(w, h, false)
+  }
+
+  private async rebuildWithFeedback(label: string) {
+    const token = ++this.buildToken
+    this.onLoading?.(true, label)
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    if (token !== this.buildToken || this.disposed) return
+    try {
+      this.buildMode(this.mode)
+    } finally {
+      if (token === this.buildToken) this.onLoading?.(false)
+    }
   }
 
   private async loadOption(option: ModelOption) {
@@ -186,6 +143,10 @@ export class SceneEngine {
       const proxies = buildLodProxies(template.parts)
       this.lodMid = proxies.mid
       this.lodLow = proxies.low
+
+      // Yield before heavy scene populate so loading indicator paints
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      if (token !== this.loadToken || this.disposed) return
       this.buildMode(this.mode)
     } catch (err) {
       console.error(err)
@@ -198,131 +159,17 @@ export class SceneEngine {
   }
 
   private buildMode(mode: RenderMode) {
-    this.clearRoot()
+    clearRoot(this.root)
     this.mode = mode
     if (!this.template) return
 
-    switch (mode) {
-      case 'baseline':
-        this.buildBaseline()
-        break
-      case 'instanced':
-        this.buildInstanced()
-        break
-      case 'merged':
-        this.buildMerged()
-        break
-      case 'lod':
-        this.buildLod()
-        break
-    }
-  }
-
-  private placeMatrix(p: Placement, out: THREE.Matrix4) {
-    const lift = this.template?.groundOffset ?? 0
-    const pos = new THREE.Vector3(p.x, p.y + lift * p.scale, p.z)
-    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.rotY)
-    const s = new THREE.Vector3(p.scale, p.scale, p.scale)
-    return out.compose(pos, q, s)
-  }
-
-  private buildBaseline() {
-    const parts = this.template!.parts
-    for (const p of this.placements) {
-      const group = new THREE.Group()
-      const m = new THREE.Matrix4()
-      this.placeMatrix(p, m)
-      group.applyMatrix4(m)
-
-      for (const part of parts) {
-        const mesh = new THREE.Mesh(part.geometry, part.material)
-        mesh.frustumCulled = true
-        group.add(mesh)
-      }
-      this.root.add(group)
-    }
-  }
-
-  private buildInstanced() {
-    const parts = this.template!.parts
-    const m = new THREE.Matrix4()
-
-    for (const part of parts) {
-      const mesh = new THREE.InstancedMesh(part.geometry, part.material, this.placements.length)
-      mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
-      for (let i = 0; i < this.placements.length; i++) {
-        this.placeMatrix(this.placements[i], m)
-        mesh.setMatrixAt(i, m)
-      }
-      mesh.instanceMatrix.needsUpdate = true
-      mesh.frustumCulled = false
-      this.root.add(mesh)
-    }
-  }
-
-  private buildMerged() {
-    const parts = this.template!.parts
-    const m = new THREE.Matrix4()
-
-    // One merged mesh per material/part — preserves textures, DrawCall ≈ parts
-    for (const part of parts) {
-      const pieces: THREE.BufferGeometry[] = []
-      for (const p of this.placements) {
-        const geo = part.geometry.clone()
-        this.placeMatrix(p, m)
-        geo.applyMatrix4(m)
-        pieces.push(geo)
-      }
-
-      const merged = mergeGeometries(pieces, false)
-      for (const g of pieces) g.dispose()
-      if (!merged) continue
-
-      const mesh = new THREE.Mesh(merged, part.material)
-      mesh.frustumCulled = true
-      mesh.userData.ownsGeometry = true
-      this.root.add(mesh)
-    }
-  }
-
-  private buildLod() {
-    const high = this.template!.parts
-    const mid = this.lodMid.length ? this.lodMid : high
-    const low = this.lodLow.length ? this.lodLow : high
-    const m = new THREE.Matrix4()
-
-    for (const p of this.placements) {
-      const lod = new THREE.LOD()
-      lod.addLevel(this.makePartGroup(high), 0)
-      lod.addLevel(this.makePartGroup(mid), 30)
-      lod.addLevel(this.makePartGroup(low), 60)
-      this.placeMatrix(p, m)
-      lod.applyMatrix4(m)
-      this.root.add(lod)
-    }
-  }
-
-  private makePartGroup(parts: TemplatePart[]) {
-    const g = new THREE.Group()
-    for (const part of parts) {
-      const mesh = new THREE.Mesh(part.geometry, part.material)
-      mesh.frustumCulled = true
-      g.add(mesh)
-    }
-    return g
-  }
-
-  private clearRoot() {
-    while (this.root.children.length > 0) {
-      const child = this.root.children[0]
-      this.root.remove(child)
-      child.traverse((obj) => {
-        const mesh = obj as THREE.Mesh
-        if (mesh.isMesh && mesh.userData.ownsGeometry && mesh.geometry) {
-          mesh.geometry.dispose()
-        }
-      })
-    }
+    buildModeScene(mode, {
+      root: this.root,
+      placements: this.placements,
+      template: this.template,
+      lodMid: this.lodMid,
+      lodLow: this.lodLow,
+    })
   }
 
   private disposeLodProxies() {

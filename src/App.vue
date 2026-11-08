@@ -1,77 +1,27 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, shallowRef } from 'vue'
+import { ref } from 'vue'
 import Hud from './components/Hud.vue'
 import ModeSwitcher from './components/ModeSwitcher.vue'
 import ModelSwitcher from './components/ModelSwitcher.vue'
-import { SceneEngine } from './scene/SceneEngine'
-import { DEFAULT_MODEL_ID, type ModelId } from './models/catalog'
-import { MODES, OBJECT_COUNT, type RenderMode, type RenderStats } from './types'
+import { useSceneDemo } from './composables/useSceneDemo'
+import { OBJECT_COUNT } from './types'
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-const mode = ref<RenderMode>('baseline')
-const modelId = ref<ModelId>(DEFAULT_MODEL_ID)
-const loading = ref(false)
-const loadError = ref('')
-const engine = shallowRef<SceneEngine | null>(null)
-const stats = ref<RenderStats>({
-  fps: 0,
-  drawCalls: 0,
-  triangles: 0,
-  points: 0,
-  lines: 0,
-  geometries: 0,
-  textures: 0,
-  mode: 'baseline',
-})
+const {
+  mode,
+  modelId,
+  loading,
+  loadError,
+  stats,
+  activeHint,
+  onModeChange,
+  onModelChange,
+} = useSceneDemo(canvasRef)
 
-const activeHint = () => MODES.find((m) => m.id === mode.value)?.hint ?? ''
 const reportUrl = `${import.meta.env.BASE_URL}Three.js-meshlet-可行性评估.html`.replace(
   /([^:]\/)\/+/g,
   '$1',
 )
-
-function onModeChange(next: RenderMode) {
-  mode.value = next
-  engine.value?.setMode(next)
-}
-
-async function onModelChange(next: ModelId) {
-  if (next === modelId.value && !loadError.value) return
-  modelId.value = next
-  loadError.value = ''
-  try {
-    await engine.value?.setModel(next)
-  } catch {
-    loadError.value = '模型加载失败，请检查 public/models'
-  }
-}
-
-onMounted(async () => {
-  const canvas = canvasRef.value
-  if (!canvas) return
-  const eng = new SceneEngine(canvas)
-  eng.setStatsListener((s) => {
-    stats.value = s
-  })
-  eng.setLoadingListener((v) => {
-    loading.value = v
-  })
-  eng.start()
-  engine.value = eng
-  loading.value = true
-  try {
-    await eng.init()
-  } catch {
-    loadError.value = '模型加载失败，请检查 public/models'
-  } finally {
-    loading.value = false
-  }
-})
-
-onUnmounted(() => {
-  engine.value?.dispose()
-  engine.value = null
-})
 </script>
 
 <template>
@@ -101,7 +51,7 @@ onUnmounted(() => {
 
     <footer class="chrome chrome--bottom">
       <ModeSwitcher :model-value="mode" @update:model-value="onModeChange" />
-      <p class="footnote">{{ activeHint() }} · 拖拽旋转 · 滚轮缩放</p>
+      <p class="footnote">{{ activeHint }} · 拖拽旋转 · 滚轮缩放</p>
     </footer>
   </div>
 </template>
