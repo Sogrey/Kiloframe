@@ -78,26 +78,25 @@ onUnmounted(() => {
   <div class="app">
     <canvas ref="canvasRef" class="viewport" />
 
-    <header class="chrome chrome--top">
-      <div class="brand">
-        <div class="brand__name">Kiloframe</div>
-        <p class="brand__lead">
-          同一 {{ OBJECT_COUNT }} 模型场景 · 四模式性能对比
-        </p>
-        <a class="brand__link" :href="reportUrl" target="_blank" rel="noopener noreferrer">
-          Meshlet 可行性评估报告
-        </a>
+    <div class="chrome chrome--top">
+      <div class="chrome__left">
+        <div class="brand">
+          <div class="brand__name">Kiloframe</div>
+          <p class="brand__lead">
+            同一 {{ OBJECT_COUNT }} 模型场景 · 四模式性能对比
+          </p>
+          <a class="brand__link" :href="reportUrl" target="_blank" rel="noopener noreferrer">
+            Meshlet 可行性评估报告
+          </a>
+        </div>
+        <ModelSwitcher
+          :model-value="modelId"
+          :loading="loading"
+          @update:model-value="onModelChange"
+        />
+        <p v-if="loadError" class="error">{{ loadError }}</p>
       </div>
       <Hud :stats="stats" />
-    </header>
-
-    <div class="chrome chrome--mid">
-      <ModelSwitcher
-        :model-value="modelId"
-        :loading="loading"
-        @update:model-value="onModelChange"
-      />
-      <p v-if="loadError" class="error">{{ loadError }}</p>
     </div>
 
     <footer class="chrome chrome--bottom">
@@ -142,11 +141,13 @@ onUnmounted(() => {
   justify-content: space-between;
 }
 
-.chrome--mid {
-  top: 108px;
+.chrome__left {
+  display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  max-width: min(720px, calc(100% - 32px));
+  gap: 10px;
+  align-items: stretch;
+  max-width: min(720px, calc(100% - 200px));
+  min-width: 0;
 }
 
 .chrome--bottom {
@@ -155,7 +156,6 @@ onUnmounted(() => {
 }
 
 .brand {
-  max-width: min(520px, 70vw);
   padding: 14px 16px;
   border: 1px solid rgba(148, 178, 230, 0.2);
   border-radius: 14px;
@@ -211,9 +211,9 @@ onUnmounted(() => {
     flex-direction: column;
   }
 
-  .chrome--mid {
-    top: auto;
-    bottom: 168px;
+  .chrome__left {
+    max-width: 100%;
+    width: 100%;
   }
 }
 </style>
