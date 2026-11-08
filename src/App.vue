@@ -25,6 +25,10 @@ const stats = ref<RenderStats>({
 })
 
 const activeHint = () => MODES.find((m) => m.id === mode.value)?.hint ?? ''
+const reportUrl = `${import.meta.env.BASE_URL}Three.js-meshlet-可行性评估.html`.replace(
+  /([^:]\/)\/+/g,
+  '$1',
+)
 
 function onModeChange(next: RenderMode) {
   mode.value = next
@@ -80,6 +84,9 @@ onUnmounted(() => {
         <p class="brand__lead">
           同一 {{ OBJECT_COUNT }} 模型场景 · 四模式性能对比
         </p>
+        <a class="brand__link" :href="reportUrl" target="_blank" rel="noopener noreferrer">
+          Meshlet 可行性评估报告
+        </a>
       </div>
       <Hud :stats="stats" />
     </header>
@@ -170,6 +177,20 @@ onUnmounted(() => {
   color: #9db0d0;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.brand__link {
+  display: inline-block;
+  margin-top: 10px;
+  color: #8fb0e8;
+  font-size: 12px;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(143, 176, 232, 0.35);
+}
+
+.brand__link:hover {
+  color: #c5d8ff;
+  border-bottom-color: rgba(197, 216, 255, 0.7);
 }
 
 .footnote {

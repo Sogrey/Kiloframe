@@ -2,7 +2,7 @@
 
 同一 1000 模型场景的 Three.js 性能对比演示：基线 / InstancedMesh / 几何合并 / LOD+剔除。
 
-依据见 [`docs/可行性评估依据.md`](docs/可行性评估依据.md)。
+依据见 [`docs/可行性评估依据.md`](docs/可行性评估依据.md)；可视化报告见 [`public/Three.js-meshlet-可行性评估.html`](public/Three.js-meshlet-可行性评估.html)（演示页左上角有入口）。
 
 **在线演示：** https://sogrey.github.io/Kiloframe/
 
